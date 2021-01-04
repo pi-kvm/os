@@ -1,7 +1,9 @@
 -include config.mk
 
 BOARD ?= rpi4
+ARCH ?= arm
 PLATFORM ?= v2-hdmi
+UBOOT ?=
 STAGES ?= __init__ os pikvm-repo watchdog ro no-audit pikvm pikvm-image __cleanup__
 
 HOSTNAME ?= pikvm
@@ -10,6 +12,9 @@ TIMEZONE ?= Europe/Moscow
 #REPO_URL ?= http://mirror.yandex.ru/archlinux-arm
 REPO_URL ?= http://de3.mirror.archlinuxarm.org
 BUILD_OPTS ?=
+BUILDER_URL ?= https://github.com/mdevaev/pi-builder
+PIKVM_REPO_URL ?= https://pikvm.org/repos
+PIKVM_REPO_KEY ?= 912C773ABBD1B584
 
 WIFI_ESSID ?=
 WIFI_PASSWD ?=
@@ -20,6 +25,7 @@ WEBUI_ADMIN_PASSWD ?= admin
 IPMI_ADMIN_PASSWD ?= admin
 
 CARD ?= /dev/mmcblk0
+IMAGE_FILE ?= images/$(PLATFORM)-$(BOARD)-$(ARCH)$(if $(UBOOT),-$(UBOOT),).img
 
 
 # =====
@@ -27,7 +33,7 @@ SHELL = /usr/bin/env bash
 _BUILDER_DIR = ./.pi-builder
 
 define fetch_version
-$(shell curl --silent "https://pikvm.org/repos/$(BOARD)/latest/$(1)")
+$(shell curl --silent "$(PIKVM_REPO_URL)/$(BOARD)-$(ARCH)/latest/$(1)")
 endef
 
 
@@ -68,15 +74,19 @@ os: $(_BUILDER_DIR)
 		' \
 		PROJECT=pikvm-os-$(PLATFORM) \
 		BOARD=$(BOARD) \
+		ARCH=$(ARCH) \
+		UBOOT=$(UBOOT) \
 		STAGES='$(STAGES)' \
 		HOSTNAME=$(HOSTNAME) \
 		LOCALE=$(LOCALE) \
 		TIMEZONE=$(TIMEZONE) \
-		REPO_URL=$(REPO_URL)
+		REPO_URL=$(REPO_URL) \
+		PIKVM_REPO_URL=$(PIKVM_REPO_URL) \
+		PIKVM_REPO_KEY=$(PIKVM_REPO_KEY)
 
 
 $(_BUILDER_DIR):
-	git clone --depth=1 https://github.com/mdevaev/pi-builder $(_BUILDER_DIR)
+	git clone --depth=1 $(BUILDER_URL) $(_BUILDER_DIR)
 
 
 update: $(_BUILDER_DIR)
@@ -87,6 +97,9 @@ update: $(_BUILDER_DIR)
 install: $(_BUILDER_DIR)
 	make -C $(_BUILDER_DIR) install \
 		CARD=$(CARD) \
+		BOARD=$(BOARD) \
+		ARCH=$(ARCH) \
+		UBOOT=$(UBOOT) \
 		CARD_DATA_FS_TYPE=$(if $(findstring v2-hdmi,$(PLATFORM)),ext4,) \
 		CARD_DATA_FS_FLAGS=-m0
 
@@ -107,13 +120,13 @@ clean-all:
 image:
 	mkdir -p images
 	sudo bash -x -c ' \
-		dd if=/dev/zero of=images/$(PLATFORM)-$(BOARD).img bs=512 count=12582912 \
-		&& device=`losetup --find --show images/$(PLATFORM)-$(BOARD).img` \
-		&& make install CARD=$$device \
+		dd if=/dev/zero of=$(IMAGE_FILE) bs=512 count=12582912 \
+		&& device=`losetup --find --show $(IMAGE_FILE)` \
+		&& make install CARD=$$device BOARD=$(BOARD) ARCH=$(ARCH) UBOOT=$(UBOOT)\
 		&& losetup -d $$device \
 	'
-	bzip2 images/$(PLATFORM)-$(BOARD).img
-	sha1sum images/$(PLATFORM)-$(BOARD).img.bz2 | awk '{print $$1}' > images/$(PLATFORM)-$(BOARD).img.bz2.sha1
+	bzip2 -f $(IMAGE_FILE)
+	sha1sum $(IMAGE_FILE).bz2 | awk '{print $$1}' > $(IMAGE_FILE).bz2.sha1
 
 
 upload:
